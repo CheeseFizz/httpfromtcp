@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"unicode"
+
+	"github.com/CheeseFizz/httpfromtcp/internal/headers"
 )
 
 const bufferSize int = 8
@@ -19,6 +21,7 @@ const (
 type Request struct {
 	RequestLine RequestLine
 	state       requestState
+	Headers     headers.Headers
 }
 
 func (r *Request) parse(data []byte) (int, error) {
