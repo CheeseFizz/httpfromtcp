@@ -91,14 +91,19 @@ func TestRequestLineParse(t *testing.T) {
 	_, err = RequestFromReader(reader)
 	require.Error(t, err)
 
+}
+
+func TestHeaderParse(t *testing.T) {
+
 	// Test: Standard Headers
-	reader = &chunkReader{
+	reader := &chunkReader{
 		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n",
 		numBytesPerRead: 3,
 	}
-	r, err = RequestFromReader(reader)
+	r, err := RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
+	assert.Equal(t, 3, len(r.Headers))
 	assert.Equal(t, "localhost:42069", r.Headers["host"])
 	assert.Equal(t, "curl/7.81.0", r.Headers["user-agent"])
 	assert.Equal(t, "*/*", r.Headers["accept"])
@@ -108,6 +113,45 @@ func TestRequestLineParse(t *testing.T) {
 		data:            "GET / HTTP/1.1\r\nHost localhost:42069\r\n\r\n",
 		numBytesPerRead: 3,
 	}
+	_, err = RequestFromReader(reader)
+	require.Error(t, err)
+
+	// Test: Standard Headers
+	reader = &chunkReader{
+		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nContent-Type: application/json\r\n\r\n",
+		numBytesPerRead: 3,
+	}
+
+	// Test: Empty Header
+	reader = &chunkReader{
+		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nAccept: \r\n\r\n",
+		numBytesPerRead: 3,
+	}
+	_, err = RequestFromReader(reader)
+	require.Error(t, err)
+
+	// Test: Duplicate Headers
+	reader = &chunkReader{
+		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nAccept: application/json\r\n Accept: text/plain\r\n\r\n",
+		numBytesPerRead: 3,
+	}
 	r, err = RequestFromReader(reader)
+	require.NoError(t, err)
+	assert.Equal(t, "application/json,text/plain", r.Headers["accept"])
+
+	// Test: Missing End of Headers with Content
+	reader = &chunkReader{
+		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nAccept: application/json\r\n{\"test\": \"value\"}\r\n",
+		numBytesPerRead: 3,
+	}
+	_, err = RequestFromReader(reader)
+	require.Error(t, err)
+
+	// Test: Missing End of Headers without Content
+	reader = &chunkReader{
+		data:            "GET / HTTP/1.1\r\nHost: localhost:42069\r\nAccept: application/json\r\n",
+		numBytesPerRead: 3,
+	}
+	_, err = RequestFromReader(reader)
 	require.Error(t, err)
 }

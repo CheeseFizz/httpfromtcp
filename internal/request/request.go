@@ -14,8 +14,9 @@ const bufferSize int = 8
 type requestState int
 
 const (
-	stateInitializing requestState = iota
-	stateDone
+	requestStateInitializing requestState = iota
+	requestStateParsingHeaders
+	requestStateDone
 )
 
 type Request struct {
@@ -24,10 +25,9 @@ type Request struct {
 	Headers     headers.Headers
 }
 
-func (r *Request) parse(data []byte) (int, error) {
-
+func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.state {
-	case 0:
+	case requestStateInitializing:
 		b, rline, err := parseRequestLine(data)
 		if err != nil {
 			return 0, err
@@ -35,17 +35,42 @@ func (r *Request) parse(data []byte) (int, error) {
 			return 0, nil
 		} else {
 			r.RequestLine = *rline
-			r.state = 1
+			r.state = requestStateParsingHeaders
 			return b, nil
 		}
 
-	case 1:
+	case requestStateParsingHeaders:
+		b, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return b, err
+		}
+		if done {
+			r.state = requestStateDone
+		}
+		return b, nil
+
+	case requestStateDone:
 		return 0, fmt.Errorf("error: trying to read data in 'done' state")
 
 	default:
 		return 0, fmt.Errorf("error: unknown state")
 
 	}
+}
+
+func (r *Request) parse(data []byte) (int, error) {
+	totalBytesParsed := 0
+	for r.state != requestStateDone {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			break
+		}
+		totalBytesParsed += n
+	}
+	return totalBytesParsed, nil
 }
 
 type RequestLine struct {
@@ -64,6 +89,7 @@ func isUpper(s string) bool {
 }
 
 func parseRequestLine(reqbytes []byte) (int, *RequestLine, error) {
+	lencrlf := len([]byte("\r\n"))
 	requestLine := RequestLine{}
 
 	reqstr := string(reqbytes)
@@ -93,19 +119,21 @@ func parseRequestLine(reqbytes []byte) (int, *RequestLine, error) {
 	requestLine.Method = chunks[0]
 	requestLine.RequestTarget = chunks[1]
 
-	return len([]byte(rlines[0])), &requestLine, nil
+	return len([]byte(rlines[0])) + lencrlf, &requestLine, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	empty := Request{}
 	request := Request{
-		state: stateInitializing,
+		state: requestStateInitializing,
 	}
+
+	request.Headers = headers.NewHeaders()
 
 	buf := make([]byte, bufferSize)
 	readToIndex := 0
 
-	for request.state != stateDone {
+	for request.state != requestStateDone {
 		if len(buf) == readToIndex {
 			newbuf := make([]byte, 2*len(buf))
 			copy(newbuf, buf)
@@ -115,7 +143,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		// get more data from reader
 		n, err := reader.Read(buf[readToIndex:])
 		if err == io.EOF {
-			request.state = stateDone
+			if request.state != requestStateDone {
+				return &empty, fmt.Errorf("reached end of reader without reaching end of request")
+			}
 			break
 		}
 		readToIndex += n
