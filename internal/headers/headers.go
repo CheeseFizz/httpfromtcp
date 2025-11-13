@@ -9,6 +9,16 @@ import (
 
 type Headers map[string]string
 
+func (h Headers) Get(key string) (value string, ok bool) {
+	lower_key := strings.ToLower(key)
+	val, ok := h[lower_key]
+	if !ok {
+		return "", false
+	}
+
+	return val, true
+}
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	// Note: this function will always return done=false for the first run of valid data, even if there are headers
 	// 		The only time this won't be the case is when data starts with CRLF

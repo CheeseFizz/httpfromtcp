@@ -75,7 +75,15 @@ func main() {
 			"Request line:\n- Method: %s\n- Target: %s\n- Version: %s\n",
 			request.RequestLine.Method,
 			request.RequestLine.RequestTarget,
-			request.RequestLine.HttpVersion)
+			request.RequestLine.HttpVersion,
+		)
+
+		fmt.Println("Headers:")
+		for key, val := range request.Headers {
+			fmt.Printf("- %s: %s\n", key, val)
+		}
+
+		fmt.Printf("Body:\n%s\n", string(request.Body))
 
 		fmt.Printf("Connection from %s closed\n", conn.RemoteAddr().String())
 	}

@@ -1,8 +1,10 @@
 package request
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -16,6 +18,7 @@ type requestState int
 const (
 	requestStateInitializing requestState = iota
 	requestStateParsingHeaders
+	requestStateParsingBody
 	requestStateDone
 )
 
@@ -23,6 +26,7 @@ type Request struct {
 	RequestLine RequestLine
 	state       requestState
 	Headers     headers.Headers
+	Body        []byte
 }
 
 func (r *Request) parseSingle(data []byte) (int, error) {
@@ -45,9 +49,34 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return b, err
 		}
 		if done {
-			r.state = requestStateDone
+			r.state = requestStateParsingBody
 		}
 		return b, nil
+
+	case requestStateParsingBody:
+		content_length_str, ok := r.Headers.Get("Content-Length")
+		if !ok || content_length_str == string(rune(0)) {
+			// no content-length == no body to process
+			r.state = requestStateDone
+			return 0, nil
+		}
+
+		content_length, err := strconv.Atoi(content_length_str)
+		if err != nil {
+			return 0, err
+		}
+
+		r.Body = bytes.TrimRight(append(r.Body, data...), "\x00")
+
+		if len(r.Body) == content_length {
+			r.state = requestStateDone
+		}
+
+		if len(r.Body) > content_length {
+			return 0, fmt.Errorf("content greater than stated length:\n%v\nlength: %v\ncontent-length: %v", r.Body, len(r.Body), content_length)
+		}
+
+		return len(bytes.TrimRight(data, "\x00")), nil
 
 	case requestStateDone:
 		return 0, fmt.Errorf("error: trying to read data in 'done' state")
@@ -129,6 +158,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	}
 
 	request.Headers = headers.NewHeaders()
+	request.Body = make([]byte, 0)
 
 	buf := make([]byte, bufferSize)
 	readToIndex := 0
